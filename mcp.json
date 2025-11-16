@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "movies-rag": {
+      "command": "C:/Users/luizm/AppData/Local/Programs/Python/Python312/python.exe",
+      "args": [
+        "movies-rag.py"
+      ],
+      "cwd": "E:/GitHub Repositories/Projetos/pln-trabalho-final/movies-mcp"
+    }
+  }
+}

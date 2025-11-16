@@ -1,8 +1,6 @@
-# ingest.py
-
 import os
 import psycopg2
-from psycopg2 import extras  # <-- A CORREÇÃO ESTÁ AQUI
+from psycopg2 import extras
 import nltk
 import re
 from dotenv import load_dotenv
@@ -15,18 +13,14 @@ import argparse
 load_dotenv()
 
 # Carregue as variáveis de ambiente
-DB_URL = os.getenv("DATABASE_URL")
+DB_URL = "postgresql://postgres:senha123@localhost:5432/filmes_rag"
 REVIEWS_DIR = "resenhas"
 MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 
 # Baixar recursos do NLTK (apenas na primeira vez)
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    print("Baixando recursos do NLTK (stopwords, punkt)...")
-    nltk.download('punkt', quiet=True)
-    nltk.download('stopwords', quiet=True)
+nltk.download("punkt")
+nltk.download("punkt_tab")
+nltk.download("stopwords")
 
 STOPWORDS_PT = set(nltk.corpus.stopwords.words('portuguese'))
 

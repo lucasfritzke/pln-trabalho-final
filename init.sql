@@ -1,24 +1,56 @@
--- Criar extensão pgVector
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Criar tabela de filmes
-CREATE TABLE IF NOT EXISTS filmes (
-    id SERIAL PRIMARY KEY,
-    titulo VARCHAR(500) NOT NULL,
-    chunk_texto TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    vetor_embedding vector(768),
-    data_insercao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- public.movies definição
+ 
+-- Drop table
+ 
+-- DROP TABLE public.movies;
+ 
+CREATE TABLE IF NOT EXISTS public.movies (
+
+	movie_id serial4 NOT NULL,
+
+	titulo varchar(500) NOT NULL,
+
+	data_insercao timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+
+	CONSTRAINT movies_pkey PRIMARY KEY (movie_id),
+
+	CONSTRAINT movies_titulo_key UNIQUE (titulo)
+
+);
+ 
+ 
+-- public.chunks definição
+ 
+-- Drop table
+ 
+-- DROP TABLE public.chunks;
+ 
+CREATE TABLE IF NOT EXISTS  public.chunks (
+
+	chunk_id serial4 NOT NULL,
+
+	movie_id int4 NOT NULL,
+
+	chunk_texto text NOT NULL,
+
+	chunk_index int4 NOT NULL,
+
+	vetor_embedding public.vector NULL,
+
+	CONSTRAINT chunks_movie_chunk_idx UNIQUE (movie_id, chunk_index),
+
+	CONSTRAINT chunks_pkey PRIMARY KEY (chunk_id),
+
+	CONSTRAINT chunks_movie_id_fkey FOREIGN KEY (movie_id) REFERENCES public.movies(movie_id) ON DELETE CASCADE
+
 );
 
--- Índices
-CREATE INDEX IF NOT EXISTS idx_filmes_vetor
-ON filmes
-USING ivfflat (vetor_embedding vector_cosine_ops)
-WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_chunks_movie_id ON public.chunks USING btree (movie_id);
 
-CREATE INDEX IF NOT EXISTS idx_filmes_titulo
-ON filmes(titulo);
+ALTER TABLE public.chunks
+    ALTER COLUMN vetor_embedding TYPE vector(768);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_filmes_titulo_chunk
-ON filmes(titulo, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_chunks_vetor ON public.chunks USING ivfflat (vetor_embedding vector_cosine_ops) WITH (lists='100');
+ 
