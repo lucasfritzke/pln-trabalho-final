@@ -1,0 +1,5 @@
+{
+  "client": "python movies_rag.py",
+  "name": "Movies RAG MCP",
+  "version": "1.0.0"
+}

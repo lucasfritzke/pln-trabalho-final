@@ -1,27 +1,24 @@
-# --- Núcleo do PyTorch com CUDA 12.1 ---
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121
-torchaudio==2.5.1+cu121
---extra-index-url https://download.pytorch.org/whl/cu121
+# requirements.txt
 
-# --- Modelos e embeddings ---
-transformers==4.46.2
-sentence-transformers==3.1.1
+# Para a API
+fastapi
+uvicorn[standard]
 
-# --- Utilidades e análise ---
-numpy==1.26.4
-pandas==2.2.3
-tqdm==4.67.0
-scikit-learn==1.5.2
+# Para Embeddings e pré-processamento
+sentence-transformers
+nltk
+langchain-text-splitters  # Usaremos para um chunking mais inteligente
 
-# --- Banco de dados ---
-psycopg2-binary==2.9.9
+# Para o Banco de Dados Postgres + PGVector
+psycopg2-binary
+pgvector
 
-# --- Jupyter e ambiente ---
-ipykernel==6.29.5
-jupyter==1.1.1
-jupyterlab==4.3.2
+# Para o Agente (Bônus) - conectar ao LM Studio
+openai
 
-# --- Diversos ---
-requests==2.32.3
-regex==2024.11.6
+# Para variáveis de ambiente (boa prática)
+python-dotenv
+
+# Para MCP Server
+mcp>=1.0.0
+httpx>=0.24.0
