@@ -8,23 +8,18 @@ import httpx
 
 server = Server(name="movies-rag")
 
-
-# -------------------------------------------------------------------
-# Lista de ferramentas disponíveis
-# -------------------------------------------------------------------
 @server.list_tools()
 async def list_tools():
-    """Lista as ferramentas disponíveis."""
     return [
         Tool(
             name="searchMovies",
-            description="Busca informações sobre filmes usando RAG",
+            description="Busca filmes no banco de dados. Retorna resenhas completas baseadas no tema.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "Pergunta ou busca sobre filmes"
+                        "description": "Tema, gênero ou descrição do filme"
                     }
                 },
                 "required": ["prompt"]
@@ -33,49 +28,35 @@ async def list_tools():
     ]
 
 
-# -------------------------------------------------------------------
-# Execução de ferramentas
-# -------------------------------------------------------------------
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
-    """Executa a ferramenta solicitada."""
-
     if name == "searchMovies":
         prompt = arguments.get("prompt", "")
-
+        # URL da API FastAPI
         url = "http://localhost:8000/query"
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.post(url, json={"prompt": prompt})
+                response = await client.post(url, json={"prompt": prompt}, timeout=30.0)
 
             if response.status_code != 200:
-                error_msg = f"Erro HTTP {response.status_code}: {response.text}"
-                return [TextContent(type="text", text=error_msg)]
+                return [TextContent(type="text", text=f"Erro na API: {response.text}")]
 
             data = response.json()
-            result = json.dumps(data, indent=2, ensure_ascii=False)
 
-            return [TextContent(type="text", text=result)]
+            # Formata o JSON para o LLM ler claramente
+            result_text = json.dumps(data, indent=2, ensure_ascii=False)
+            return [TextContent(type="text", text=result_text)]
 
         except Exception as e:
-            error_msg = f"Erro ao chamar API: {str(e)}"
-            return [TextContent(type="text", text=error_msg)]
-
+            return [TextContent(type="text", text=f"Erro de conexão: {str(e)}")]
     else:
         raise ValueError(f"Ferramenta desconhecida: {name}")
 
 
-# -------------------------------------------------------------------
-# Iniciar servidor MCP
-# -------------------------------------------------------------------
 async def main():
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 if __name__ == "__main__":

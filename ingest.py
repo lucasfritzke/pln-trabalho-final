@@ -12,28 +12,22 @@ import argparse
 # --- Configuração Inicial ---
 load_dotenv()
 
-# Carregue as variáveis de ambiente
-DB_URL = "postgresql://postgres:senha123@localhost:5432/filmes_rag"
-REVIEWS_DIR = "resenhas"
+DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:senha123@localhost:5432/filmes_rag")
+REVIEWS_DIR = "sinopses"
 MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 
-# Baixar recursos do NLTK (apenas na primeira vez)
+# Baixar recursos do NLTK
 nltk.download("punkt")
-nltk.download("punkt_tab")
 nltk.download("stopwords")
 
 STOPWORDS_PT = set(nltk.corpus.stopwords.words('portuguese'))
 
-# Carregar modelo de embedding, forçando o uso de CUDA
-print(f"Carregando modelo de embedding: {MODEL_NAME} (usando CUDA)...")
-model = SentenceTransformer(MODEL_NAME, device='cuda')
-print("Modelo carregado com sucesso.")
+print(f"Carregando modelo: {MODEL_NAME}...")
+model = SentenceTransformer(MODEL_NAME, device='cpu')  # Use 'cuda' se tiver GPU
+print("Modelo carregado.")
 
-
-# --- Funções Auxiliares ---
 
 def preprocess_text(text: str) -> str:
-    """Limpa e pré-processa o texto para embedding."""
     text = text.lower()
     text = re.sub(r'[^\w\s]', '', text)
     tokens = nltk.word_tokenize(text, language='portuguese')
@@ -42,145 +36,115 @@ def preprocess_text(text: str) -> str:
 
 
 def get_db_connection():
-    """Estabelece conexão com o banco de dados e registra o tipo vector."""
     try:
         conn = psycopg2.connect(DB_URL)
         register_vector(conn)
         return conn
     except Exception as e:
-        print(f"Erro ao conectar ao banco de dados: {e}")
+        print(f"Erro ao conectar ao banco: {e}")
         return None
 
 
 def process_and_ingest_movie(filepath: str, conn):
-    """Processa um único arquivo e insere nas tabelas normalizadas."""
     filename = os.path.basename(filepath)
-
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
         if not lines:
-            print(f"Arquivo {filename} está vazio. Pulando.")
             return
 
-        # Assumindo formato: Linha 1 = Título, Linha 2+ = Resenha
+        # Linha 1 = Título, Resto = Resenha
         title = lines[0].strip()
         review_content = " ".join([line.strip() for line in lines[1:]])
 
-        print(f"\nProcessando filme: {title}")
+        # Texto completo para salvar no banco (Título + Conteúdo) para contexto do LLM
+        full_text_storage = f"{title}\n{review_content}"
+
+        print(f"\nProcessando: {title}")
 
         with conn.cursor() as cursor:
-
-            # --- Etapa 1: Inserir/Obter o Filme ---
+            # 1. Inserir Filme com a RESENHA COMPLETA
             cursor.execute(
-                "INSERT INTO movies (titulo) VALUES (%s) ON CONFLICT (titulo) DO NOTHING",
-                (title,)
+                """
+                INSERT INTO movies (titulo, resenha_completa)
+                VALUES (%s, %s) ON CONFLICT (titulo) 
+                DO
+                UPDATE SET resenha_completa = EXCLUDED.resenha_completa
+                    RETURNING movie_id
+                """,
+                (title, full_text_storage)
             )
-            cursor.execute("SELECT movie_id FROM movies WHERE titulo = %s", (title,))
+
             result = cursor.fetchone()
             if not result:
-                print(f"  > Erro: Não consegui inserir ou encontrar o filme '{title}'.")
-                return
+                # Se caiu no conflict e não retornou (caso o DO UPDATE não retornasse), buscamos:
+                cursor.execute("SELECT movie_id FROM movies WHERE titulo = %s", (title,))
+                result = cursor.fetchone()
 
             movie_id = result[0]
 
-            # --- Etapa 2: Limpar chunks antigos deste filme ---
+            # 2. Limpar chunks antigos
             cursor.execute("DELETE FROM chunks WHERE movie_id = %s", (movie_id,))
 
-            # --- Etapa 3: Gerar e inserir embedding PARA O TÍTULO ---
-            preprocessed_title = preprocess_text(title)
-            title_embedding = model.encode(preprocessed_title)
-
-            cursor.execute(
-                """
-                INSERT INTO chunks (movie_id, chunk_texto, chunk_index, vetor_embedding)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (movie_id, title, 0, title_embedding)  # chunk_index = 0
-            )
-            print(f"  > Inserido embedding do título (Chunk 0) para movie_id {movie_id}.")
-
-            # --- Etapa 4: "Chunkar" e inserir resenha ---
+            # 3. Chunking (NÃO CRIA MAIS O CHUNK 0 APENAS COM TÍTULO)
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=512, chunk_overlap=50, length_function=len
             )
+
+            # Chunkamos o conteúdo da resenha
             chunks = text_splitter.split_text(review_content)
 
             chunk_data_list = []
             for i, chunk in enumerate(chunks):
+                # Pré-processa para o embedding (vetor), mas salva o texto original no chunk_texto
                 preprocessed_chunk = preprocess_text(chunk)
-                if not preprocessed_chunk:
+
+                # Se o chunk for vazio após processamento, pula
+                if not preprocessed_chunk.strip():
                     continue
 
+                # Embeddings
                 chunk_embedding = model.encode(preprocessed_chunk)
-                chunk_index = i + 1  # 1, 2, 3...
+                chunk_index = i + 1
 
                 chunk_data_list.append(
                     (movie_id, chunk, chunk_index, chunk_embedding)
                 )
 
-            # Inserir todos os chunks de uma vez (mais rápido)
             if chunk_data_list:
-                # 'extras' foi importado na Linha 6
                 extras.execute_values(
                     cursor,
                     """
                     INSERT INTO chunks (movie_id, chunk_texto, chunk_index, vetor_embedding)
-                    VALUES %s ON CONFLICT (movie_id, chunk_index) DO NOTHING;
+                    VALUES %s;
                     """,
                     chunk_data_list
                 )
-                print(f"  > Inseridos {len(chunk_data_list)} chunks da resenha.")
+                print(f"  > Inseridos {len(chunk_data_list)} chunks.")
 
             conn.commit()
 
     except Exception as e:
-        print(f"Erro ao processar o arquivo {filename}: {e}")
+        print(f"Erro ao processar {filename}: {e}")
         conn.rollback()
 
 
-# --- Função Principal ---
-
 def main():
-    parser = argparse.ArgumentParser(description="Script de ingestão de resenhas de filmes para o PGVector.")
-    parser.add_argument(
-        '--file',
-        type=str,
-        help="Caminho para um arquivo .txt específico para processar."
-    )
-    parser.add_argument(
-        '--all',
-        action='store_true',
-        help="Processar todos os arquivos .txt no diretório 'resenhas'."
-    )
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--file', type=str)
+    parser.add_argument('--all', action='store_true')
     args = parser.parse_args()
 
     conn = get_db_connection()
-    if not conn:
-        return
+    if not conn: return
 
-    if args.file:
-        if os.path.exists(args.file):
-            process_and_ingest_movie(args.file, conn)
-        else:
-            print(f"Erro: Arquivo {args.file} não encontrado.")
-
-    elif args.all:
-        print(f"Iniciando processamento de todos os arquivos em '{REVIEWS_DIR}'...")
-        if not os.path.exists(REVIEWS_DIR):
-            print(f"Erro: Diretório '{REVIEWS_DIR}' não encontrado.")
-            return
-
-        for filename in os.listdir(REVIEWS_DIR):
-            if filename.endswith(".txt"):
-                filepath = os.path.join(REVIEWS_DIR, filename)
-                process_and_ingest_movie(filepath, conn)
-        print("\nProcessamento de todos os arquivos concluído.")
-
-    else:
-        print("Nenhuma ação especificada. Use --file <caminho> ou --all.")
+    if args.file and os.path.exists(args.file):
+        process_and_ingest_movie(args.file, conn)
+    elif args.all and os.path.exists(REVIEWS_DIR):
+        for fn in os.listdir(REVIEWS_DIR):
+            if fn.endswith(".txt"):
+                process_and_ingest_movie(os.path.join(REVIEWS_DIR, fn), conn)
 
     conn.close()
 
