@@ -89,7 +89,7 @@ def process_and_ingest_movie(filepath: str, conn):
 
             # 3. Chunking (NÃO CRIA MAIS O CHUNK 0 APENAS COM TÍTULO)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=512, chunk_overlap=50, length_function=len
+                chunk_size=128, chunk_overlap=50, length_function=len
             )
 
             # Chunkamos o conteúdo da resenha

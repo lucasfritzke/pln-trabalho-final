@@ -13,7 +13,7 @@ load_dotenv()
 
 DB_URL = os.getenv("DATABASE_URL")
 MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
-SIMILARITY_THRESHOLD = 0.45
+SIMILARITY_THRESHOLD = 0.50
 TOP_K = 3
 
 app = FastAPI(title="Movie RAG API")
